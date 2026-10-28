@@ -1,0 +1,15 @@
+# strands-agents is AWS's open-source agent framework: the agent object and
+# the tool loop, with Bedrock as the default model provider. It pulls boto3.
+strands-agents==1.62.0
+
+# boto3 is declared directly because ops_agent.py and agentcore_native/ use it
+# directly. The [crt] extra is not optional here: without it, boto3 cannot use
+# the short-lived credentials `aws login` writes, and every call fails with
+# "Using the login credential provider requires an additional dependency".
+boto3[crt]==1.43.121
+
+python-dotenv==1.2.4
+
+# Pinned on purpose: the SDK surface moves fast. Bump deliberately.
+# Transitive packages are pinned too, in constraints.txt.
+-c constraints.txt

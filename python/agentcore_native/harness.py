@@ -6,6 +6,8 @@ generated ID (name + 10 random characters) or its ARN, so finding "our" harness
 means listing and matching on the name.
 """
 
+import os
+
 import boto3
 from dotenv import find_dotenv, load_dotenv
 
@@ -21,14 +23,20 @@ ROLE_NAME = "lab-assistant-python-harness"
 TAGS = {"project": "aws-agent-architectures"}
 
 
+# Always pass the region. boto3 reads AWS_PROFILE from the environment but not
+# AWS_REGION (only AWS_DEFAULT_REGION); without this, clients fall back to the
+# profile's region. The first publish landed in us-east-1 that way.
+REGION = os.environ["AWS_REGION"]
+
+
 def control_client():
     """Control plane: create, update, list and delete harnesses."""
-    return boto3.client("bedrock-agentcore-control")
+    return boto3.client("bedrock-agentcore-control", region_name=REGION)
 
 
 def runtime_client():
     """Data plane: invoke a harness."""
-    return boto3.client("bedrock-agentcore")
+    return boto3.client("bedrock-agentcore", region_name=REGION)
 
 
 def find_harness(control) -> dict | None:

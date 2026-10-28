@@ -37,8 +37,9 @@ aws login --profile "$AWS_PROFILE"
 ```
 
 `load_dotenv()` walks up from each **script's folder** to find the root `.env`,
-so the scripts work from any working directory. It sets `AWS_PROFILE` and
-`AWS_REGION`, which boto3 reads on its own.
+so the scripts work from any working directory. boto3 picks up `AWS_PROFILE`
+from the environment, but not `AWS_REGION`: the code passes the region to
+every client explicitly, or it would silently use the profile's region.
 
 ## Run
 
@@ -95,3 +96,10 @@ python python/agentcore_native/run_agent.py stable
   That is the lesson: instructions are advice; if a check must happen, make it
   code. Nova Micro did worse: it checked the wrong model and leaked its
   `<thinking>` tags and part of its system prompt into the answer.
+- **Harness session:** turn 2 remembers turn 1 with AgentCore Memory
+  disabled. The session's microVM holds the conversation, so it lasts as long
+  as the microVM: 5 idle minutes in this lab. Memory is what you'd add to make
+  a conversation survive beyond that.
+- **Region:** the first publish landed in us-east-1. boto3 reads `AWS_PROFILE`
+  from the environment but not `AWS_REGION`, so the AgentCore clients fell back
+  to the profile's region. The code now passes the region to every client.

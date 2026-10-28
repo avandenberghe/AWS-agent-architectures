@@ -14,13 +14,13 @@ import sys
 
 import boto3
 
-from harness import HARNESS_NAME, ROLE_NAME, control_client, find_harness
+from harness import HARNESS_NAME, REGION, ROLE_NAME, control_client, find_harness
 
 
 def main():
     control = control_client()
 
-    print("harnesses in this region:")
+    print(f"harnesses in {REGION}:")
     for h in control.list_harnesses()["harnesses"]:
         print(f"  {h['harnessName']}  ({h['status']}, latest version {h['harnessVersion']})")
 

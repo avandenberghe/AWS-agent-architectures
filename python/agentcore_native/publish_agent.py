@@ -26,7 +26,7 @@ import time
 import boto3
 from botocore.exceptions import ClientError
 
-from harness import HARNESS_NAME, ROLE_NAME, TAGS, control_client, find_harness
+from harness import HARNESS_NAME, REGION, ROLE_NAME, TAGS, control_client, find_harness
 
 INSTRUCTIONS = (
     "You are a concise assistant for an AWS AgentCore lab. "
@@ -132,7 +132,7 @@ def wait_until_settled(control, harness_id: str) -> dict:
 
 
 def main():
-    region = os.environ["AWS_REGION"]
+    region = REGION
     model = os.environ["BEDROCK_MODEL"]
     account = boto3.client("sts").get_caller_identity()["Account"]
     control = control_client()

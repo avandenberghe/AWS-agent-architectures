@@ -136,7 +136,7 @@ those tools off.
    providers need their terms accepted in the Bedrock console first; until then
    they show `agreementAvailability: NOT_AVAILABLE`.
 
-Then follow [`python/README.md`](python/README.md).
+Then follow the numbered [walkthrough in `python/README.md`](python/README.md#walkthrough): steps 1 to 9, in order.
 
 ## Costs
 

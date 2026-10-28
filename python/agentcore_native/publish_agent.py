@@ -194,7 +194,7 @@ def main():
     print(f"id:        {h['harnessId']}")
     print(f"version:   {h['harnessVersion']}")
     print()
-    print("Now open the AgentCore console -> Harnesses. It is there.")
+    print("Now open the AgentCore console (eu-north-1) -> Agents. It is there, labelled Harness.")
     print("Then: python run_agent.py")
 
 

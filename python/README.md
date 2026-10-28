@@ -24,48 +24,112 @@ published harness.
 `local_agent/` creates nothing in AWS: the agent exists only in the process.
 `agentcore_native/` creates a harness and an IAM role in the account.
 
-## Setup
+## Walkthrough
 
-Requires Python 3.10+ (the lab uses 3.13), the AWS CLI v2, and the filled-in
-`.env` at the repo root. From the repo root:
+Run everything from the repo root, in this order. Steps 1 to 4 create nothing
+in AWS; steps 5 to 8 do, and step 9 removes it again.
+
+### 0. One-time setup
 
 ```bash
+cp .env.example .env                 # then fill in AWS_PROFILE
 python3 -m venv python/.venv && source python/.venv/bin/activate
 pip install -r python/requirements.txt
-
-aws login --profile "$AWS_PROFILE"
+aws login --profile <your-profile>   # repeat when the session expires
 ```
 
-`load_dotenv()` walks up from each **script's folder** to find the root `.env`,
-so the scripts work from any working directory. boto3 picks up `AWS_PROFILE`
-from the environment, but not `AWS_REGION`: the code passes the region to
-every client explicitly, or it would silently use the profile's region.
+Requires Python 3.10+ (the lab uses 3.13) and the AWS CLI v2. Every script
+finds the root `.env` by itself, so the working directory doesn't matter.
 
-## Run
+### 1. Hello: is the chain working?
 
 ```bash
 python python/local_agent/hello_agent.py
+```
+
+One agent, one question, no tools. You should get a short answer about
+Belgium's largest city. If this fails, nothing else will work: check
+`aws login`, the profile in `.env`, and model access (root README, Setup).
+
+### 2. Order: the model calls your code
+
+```bash
 python python/local_agent/order_agent.py
+```
+
+One tool. The model decides to call `get_order_status`, gets the fixed
+string back, and phrases it. Two model calls for one question.
+
+### 3. Ops: a real loop
+
+```bash
 python python/local_agent/ops_agent.py
-
-python python/agentcore_native/publish_agent.py   # writes to the account: role + harness, a new version each run
-python python/agentcore_native/run_agent.py       # endpoint to use, default DEFAULT (= latest version)
-python python/agentcore_native/cleanup.py         # list only; --delete removes the harness and the role
 ```
 
-The Ops tools are plain functions, so you can exercise them without spending tokens:
+Two tools, three or more model calls. Expected: Claude Opus 5.5 is not usable
+yet (terms not accepted), followed by the models you can use instead.
+
+### 4. Ops without the model (optional, free)
 
 ```bash
-cd python/local_agent && ../.venv/bin/python -c "import ops_agent; print(ops_agent.check_model_access('anthropic.claude-opus-5-5'))"
+cd python/local_agent && ../.venv/bin/python -c "import ops_agent; print(ops_agent.list_usable_models())"; cd -
 ```
 
-To pin a version, create a named endpoint and pass its name to `run_agent.py`:
+The tools are plain functions; this shows exactly what the model is given.
+
+### 5. Publish: the agent becomes a resource
 
 ```bash
-aws bedrock-agentcore-control create-harness-endpoint \
-  --harness-id <id from publish_agent.py> --endpoint-name stable --target-version 1
-python python/agentcore_native/run_agent.py stable
+python python/agentcore_native/publish_agent.py
 ```
+
+**Writes to your account.** Creates the IAM role `lab-assistant-python-harness`
+(first run only) and the harness `lab_assistant_python`, version 1. Prints the
+harness ID. Then open the [AgentCore console](https://eu-north-1.console.aws.amazon.com/bedrock-agentcore/home?region=eu-north-1)
+→ **Agents**: it is listed, labelled *Harness*.
+
+### 6. Run: talk to the published agent
+
+```bash
+python python/agentcore_native/run_agent.py
+```
+
+Two turns in one session. Turn 2 answers "eu-north-1", a question it can only
+answer because the session remembers turn 1. Nothing in the script holds that
+history. Cost: a fraction of a cent, plus about 5 minutes of microVM memory.
+
+### 7. Versions (optional)
+
+Change `INSTRUCTIONS` in `publish_agent.py` (say, "answer in Dutch"), then:
+
+```bash
+python python/agentcore_native/publish_agent.py   # prints version: 2
+python python/agentcore_native/run_agent.py       # DEFAULT -> version 2: the new behaviour
+```
+
+To keep calling version 1, give it a named endpoint and run against that:
+
+```bash
+aws bedrock-agentcore-control create-harness-endpoint --region eu-north-1 \
+  --harness-id <id from step 5> --endpoint-name stable --target-version 1
+python python/agentcore_native/run_agent.py stable  # stable -> version 1: the old behaviour
+```
+
+### 8. Look at the traces (optional)
+
+The console's **Agents** page shows sessions, traces and token use per agent
+only after CloudWatch **Transaction Search** is enabled once for the account
+(the *Configure* button on that page). It is billed as CloudWatch Logs, cents
+for a lab. After enabling, wait about 10 minutes and run step 6 again.
+
+### 9. Clean up
+
+```bash
+python python/agentcore_native/cleanup.py           # lists harness, versions, endpoints
+python python/agentcore_native/cleanup.py --delete  # removes the harness, all versions, and the role
+```
+
+Steps 1 to 4 can be rerun any time and leave nothing behind.
 
 ## Python-specific notes
 

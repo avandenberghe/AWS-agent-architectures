@@ -13,7 +13,7 @@ published harness.
 |---|---|
 | `local_agent/hello_agent.py` | One model, one agent, one question. No tools |
 | `local_agent/order_agent.py` | One tool, one call. The tool returns a fixed string, so it shows only the mechanism |
-| `local_agent/ops_agent.py` | Two read-only boto3 tools. The second call depends on what the first returned, so this is the first real loop |
+| `local_agent/ops_agent.py` | Two read-only boto3 tools: one checks a single model, one lists only the models this account can call. The first real loop |
 | `agentcore_native/publish_agent.py` | Creates the IAM role and publishes the harness `lab_assistant_python`; each later run adds a version |
 | `agentcore_native/run_agent.py` | Invokes the harness through an endpoint and holds a two-turn session |
 | `agentcore_native/cleanup.py` | Lists harnesses, versions and endpoints. `--delete` removes the harness and its role |
@@ -90,12 +90,22 @@ python python/agentcore_native/run_agent.py stable
 - **Hello:** Nova 2 Lite and Nova Micro answer "Brussels"; the Azure lab's
   gpt-5.4-mini said "Antwerp". Both are defensible (region vs municipality).
   Same question, same instructions, different model.
-- **Ops:** Nova 2 Lite reaches the right verdict on Claude Opus 5.5 (terms not
-  accepted, so not usable yet), then recommends Anthropic alternatives it never
-  checked, which are not usable either. The instructions say to check first.
-  That is the lesson: instructions are advice; if a check must happen, make it
-  code. Nova Micro did worse: it checked the wrong model and leaked its
-  `<thinking>` tags and part of its system prompt into the answer.
+- **Ops, first version:** the tools were a raw list of inference profiles
+  plus a per-model check, and the instructions said to check every
+  alternative before recommending it. Nova 2 Lite got the verdict on Claude
+  Opus 5.5 right (terms not accepted), then recommended Claude Opus 5, Sonnet
+  5.5, Haiku 5.5, GPT-6, Grok and others "already available". It had checked
+  none of them, and none were usable. The list changed from run to run. Nova
+  Micro did worse: it checked the wrong model and leaked its `<thinking>` tags
+  and part of its system prompt into the answer.
+- **Ops, fixed:** the check moved into code. `list_usable_models()` checks
+  every EU profile itself (terms accepted, authorised, entitled, token quota
+  above zero) and returns only the models that pass: the four Nova models and
+  Mistral Pixtral Large. The agent now gives the same, correct answer on every
+  run. Instructions are advice; if a check must happen, make it code.
+- **Quotas have no model ID.** They are matched by display name, and the names
+  don't always agree ("Pixtral Large (25.02)" vs "Pixtral Large 25.02 V1").
+  The first version of the check missed Pixtral for that reason.
 - **Harness session:** turn 2 remembers turn 1 with AgentCore Memory
   disabled. The session's microVM holds the conversation, so it lasts as long
   as the microVM: 5 idle minutes in this lab. Memory is what you'd add to make

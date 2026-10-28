@@ -86,10 +86,13 @@ def _access(base_id: str) -> dict:
     availability = _bedrock.get_foundation_model_availability(modelId=base_id)
     availability.pop("ResponseMetadata", None)
     name = details["modelName"]
+    # Quotas carry no model ID, only a display name, and the two don't always
+    # agree: "Pixtral Large (25.02)" vs "... Pixtral Large 25.02 V1".
+    match = name.replace("(", "").replace(")", "")
     quotas = {
         quota: value
         for quota, value in _bedrock_quotas()
-        if name in quota and "inference" in quota and "per minute" in quota
+        if match in quota and "inference" in quota and "per minute" in quota
     }
     return {"model": name, "outputs": details.get("outputModalities", []),
             "availability": availability, "quotas": quotas}

@@ -80,9 +80,10 @@ Three consequences follow from that picture, and they're what the lab steps show
 - **The model never acts.** Every side effect happens in a tool your code
   executes. Safety lives there (read-only tools, idempotency keys, limits on
   iterations and tokens), not in the instructions.
-- **Instructions are advice.** The Ops step below shows a model that was told
-  to check before recommending and didn't. Anything that must happen every time
-  belongs in code.
+- **Instructions are advice.** In the Ops step, a model told to check every
+  alternative before recommending it recommended models it never checked. The
+  fix was to move the check into the tool. Anything that must happen every
+  time belongs in code.
 
 In ArchiMate terms: the agent is an *application component* realising an
 *application process* (the loop). The model is an external *application

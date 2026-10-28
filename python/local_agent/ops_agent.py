@@ -10,7 +10,14 @@ It cannot answer that in one call. Bedrock keeps availability and entitlement
 apart: the inference profiles say what exists in this region, the model's
 availability and quotas say whether this account may actually call it. A model
 can be listed and still be unusable, for example when the provider's terms
-were never accepted. The model has to consult both and reconcile them.
+were never accepted.
+
+The first version gave the model the raw list of profiles and an instruction to
+check each alternative before recommending it. It didn't: it recommended models
+it had never checked, which were not usable either. So the check moved into
+code. list_usable_models() checks every model itself and returns only the ones
+this account can call; the model can no longer recommend anything else, whatever
+it decides. Instructions are advice; code is enforcement.
 
 Both tools are read-only boto3 calls. Nothing here creates or deletes anything.
 """
@@ -65,47 +72,77 @@ def _bedrock_quotas() -> tuple[tuple[str, float | None], ...]:
     return tuple((q["QuotaName"], q.get("Value")) for page in pages for q in page["Quotas"])
 
 
+def _base_id(model_id: str) -> str:
+    """The availability APIs want the base model ID, not a profile ID: strip
+    the routing prefix from "eu.anthropic.claude-...", if there is one."""
+    prefix, _, rest = model_id.partition(".")
+    return rest if prefix in ("eu", "us", "apac", "global") else model_id
+
+
+@lru_cache(maxsize=None)
+def _access(base_id: str) -> dict:
+    """Availability flags and per-minute quotas for one model. Raises on API errors."""
+    details = _bedrock.get_foundation_model(modelIdentifier=base_id)["modelDetails"]
+    availability = _bedrock.get_foundation_model_availability(modelId=base_id)
+    availability.pop("ResponseMetadata", None)
+    name = details["modelName"]
+    quotas = {
+        quota: value
+        for quota, value in _bedrock_quotas()
+        if name in quota and "inference" in quota and "per minute" in quota
+    }
+    return {"model": name, "outputs": details.get("outputModalities", []),
+            "availability": availability, "quotas": quotas}
+
+
+def _usable(access: dict) -> bool:
+    """The rule, in code: terms accepted, authorised, entitled, and a non-zero
+    EU cross-region token quota. Anything else cannot be called today."""
+    a = access["availability"]
+    eu_tokens = [v for q, v in access["quotas"].items()
+                 if q.startswith("Cross-region") and "tokens per minute" in q]
+    return (a.get("agreementAvailability", {}).get("status") == "AVAILABLE"
+            and a.get("authorizationStatus") == "AUTHORIZED"
+            and a.get("entitlementAvailability") == "AVAILABLE"
+            and any(v for v in eu_tokens))
+
+
 @tool
-def list_inference_profiles() -> str:
-    """List the inference profiles available in this region: the models this
-    account can address here, each with the profile ID used to call it."""
+def list_usable_models() -> str:
+    """List the text models this account can call right now from this region,
+    each with the EU inference profile ID used to call it. Every model returned
+    has been checked: terms accepted, entitled, and quota above zero. Models
+    that are listed by Bedrock but not usable are left out."""
     try:
         pages = _bedrock.get_paginator("list_inference_profiles").paginate()
-        profiles = [
-            {"profile": p["inferenceProfileId"], "name": p["inferenceProfileName"], "status": p["status"]}
-            for page in pages
-            for p in page["inferenceProfileSummaries"]
-        ]
+        profiles = [p for page in pages for p in page["inferenceProfileSummaries"]
+                    if p["inferenceProfileId"].startswith("eu.")]   # EU routing only
+        usable = []
+        for p in profiles:
+            access = _access(_base_id(p["inferenceProfileId"]))
+            if "TEXT" in access["outputs"] and _usable(access):
+                usable.append({"profile": p["inferenceProfileId"], "model": access["model"]})
     except (BotoCoreError, ClientError) as exc:
         return _fail(exc)
-    return json.dumps(profiles)
+    return json.dumps(usable)
 
 
 @tool
 def check_model_access(model_id: str) -> str:
-    """Check whether this account may call a model, and how much. Returns the
-    availability flags and the cross-region throughput quotas.
-    agreementAvailability NOT_AVAILABLE means the provider's terms have not been
-    accepted for this account, which is different from the model being absent.
+    """Check whether this account may call one model, and why not if it can't.
+    Returns usable (true/false), the availability flags and the throughput
+    quotas. agreementAvailability NOT_AVAILABLE means the provider's terms have
+    not been accepted for this account, which is different from the model being
+    absent.
 
     Args:
-        model_id: Base model ID without a region prefix, e.g. anthropic.claude-opus-5-5
+        model_id: Model or profile ID, e.g. anthropic.claude-opus-5-5
     """
-    # The model may pass a profile ID ("eu.anthropic..."); the availability API
-    # wants the base model ID.
-    base_id = model_id.split(".", 1)[1] if model_id.split(".", 1)[0] in ("eu", "us", "apac", "global") else model_id
     try:
-        availability = _bedrock.get_foundation_model_availability(modelId=base_id)
-        name = _bedrock.get_foundation_model(modelIdentifier=base_id)["modelDetails"]["modelName"]
-        quotas = {
-            quota: value
-            for quota, value in _bedrock_quotas()
-            if name in quota and "inference" in quota and "per minute" in quota
-        }
+        access = _access(_base_id(model_id))
     except (BotoCoreError, ClientError) as exc:
         return _fail(exc)
-    availability.pop("ResponseMetadata", None)
-    return json.dumps({"model": name, "availability": availability, "quotas": quotas})
+    return json.dumps({"usable": _usable(access), **access})
 
 
 def main():
@@ -117,12 +154,10 @@ def main():
         system_prompt=(
             "You help with Amazon Bedrock model access. "
             "Check the facts with your tools before answering; never guess "
-            "whether a model is usable. A model that is listed but has "
-            "agreementAvailability NOT_AVAILABLE cannot be called yet, which is "
-            "different from the model being absent. Only recommend an "
-            "alternative after checking it with check_model_access too."
+            "whether a model is usable. Only recommend models returned by "
+            "list_usable_models: those are the only ones this account can call."
         ),
-        tools=[list_inference_profiles, check_model_access],
+        tools=[check_model_access, list_usable_models],
         callback_handler=None,
     )
 
